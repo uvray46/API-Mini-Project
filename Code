@@ -1,67 +1,94 @@
 import requests
-import os
-from dotenv import load_dotenv
-import json
-# Load API key from .env file
-load_dotenv()
-API_KEY = os.getenv('#Removed#')
-# Set the base URL for the API endpoint
-base_url = "https://data.nasdaq.com/api/v3/datasets/FSE/AFX_X.json"
-# Set the parameters for the API request
-params = {
-    'start_date': '2017-01-01',  # Start date for 2017
-    'end_date': '2017-12-31',    # End date for 2017
-    'api_key': API_KEY
-}
-# Make the API request
-response = requests.get(base_url, params=params)
+
+# Define API key
+api_key = 'MY_API_KEY'
+
+# Set up the URL for the Alpha Vantage API request to fetch daily time series data
+url = f'https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=AFX.DEX&outputsize=full&apikey={api_key}'
+
+# Make the GET request to the Alpha Vantage API
+r = requests.get(url)
+
 # Check if the request was successful
-if response.status_code == 200:
+if r.status_code == 200:
     # Parse the JSON response into a Python dictionary
-    data = response.json()
-    # Extract the dataset data
-    dataset = data['dataset']['data']
-    # Initialize variables
+    data = r.json()
+
+    # Debug: Print the keys of the JSON response
+    print("JSON Response Keys:", data.keys())
+
+    # Check for errors in the response
+    if 'Error Message' in data:
+        print("Error:", data['Error Message'])
+    elif 'Note' in data:
+        print("Note:", data['Note'])
+
+
+    # Alpha Vantage's structure for daily time series data
+    time_series = data.get('Time Series (Daily)', {})
+
+    # Debug: Print the number of entries in the time series
+    print("Number of Time Series Entries:", len(time_series))
+
+    # Debug: Print the first few dates to verify format
+    print("Sample Dates:", list(time_series.keys())[:5])
+    
+    # Initialize variables for calculations
     max_open = float('-inf')
     min_open = float('inf')
-    max_change = float('-inf')
+    max_change_in_one_day = float('-inf')
     prev_close = None
-    max_close_change = float('-inf')
+    max_change_between_days = float('-inf')
     total_volume = 0
     volume_list = []
-    # Loop through dataset entries
-    for entry in dataset:
-        # Unpack the data entries, handling possible None values
-        date, open_price, high, low, close, change, traded_volume = (
-            entry[0],
-            float(entry[1]) if entry[1] is not None else None,
-            float(entry[2]) if entry[2] is not None else None,
-            float(entry[3]) if entry[3] is not None else None,
-            float(entry[4]) if entry[4] is not None else None,
-            float(entry[5]) if entry[5] is not None else None,
-            float(entry[6]) if entry[6] is not None else None
-        )
-        # Calculate the highest and lowest opening prices
+
+    # Loop through the dataset to perform the required analysis
+    for date, daily_data in time_series.items():
+        # Filter dates for the year 2017
+        if not date.startswith('2017-'):
+            continue
+        
+        # Debug: Print daily data to ensure the data format is correct
+        print(f"Processing Date: {date}, Data: {daily_data}")
+
+        # Extract the relevant data points
+        open_price = float(daily_data['1. open']) if daily_data['1. open'] else None
+        high = float(daily_data['2. high']) if daily_data['2. high'] else None
+        low = float(daily_data['3. low']) if daily_data['3. low'] else None
+        close = float(daily_data['4. close']) if daily_data['4. close'] else None
+        traded_volume = float(daily_data['5. volume']) if daily_data['5. volume'] else 0.0
+        
+        # Calculate highest and lowest opening prices
         if open_price is not None:
             max_open = max(max_open, open_price)
             min_open = min(min_open, open_price)
+        
         # Calculate the largest change in one day (High - Low)
         if high is not None and low is not None:
             daily_change = high - low
-            max_change = max(max_change, daily_change)
-        # Calculate the largest change between any two days (based on Closing Price)
+            max_change_in_one_day = max(max_change_in_one_day, daily_change)
+        
+        # Calculate the largest change between two days (based on Closing Price)
         if prev_close is not None and close is not None:
             close_change = abs(close - prev_close)
-            max_close_change = max(max_close_change, close_change)
-        # Set the previous close for next iteration
-        prev_close = close
+            max_change_between_days = max(max_change_between_days, close_change)
+        
+        # Set the previous close for the next iteration
+        if close is not None:
+            prev_close = close
+        
         # Sum up the trading volume
         if traded_volume is not None:
             total_volume += traded_volume
             volume_list.append(traded_volume)
+    
     # Calculate the average daily trading volume
-    average_volume = total_volume / len(dataset)
-    # Custom function to calculate median
+    if len(volume_list) > 0:
+        average_volume = total_volume / len(volume_list)
+    else:
+        average_volume = 0
+    
+    # Custom function to calculate the median
     def calculate_median(volumes):
         volumes.sort()
         n = len(volumes)
@@ -70,24 +97,26 @@ if response.status_code == 200:
             return (volumes[mid - 1] + volumes[mid]) / 2
         else:
             return volumes[mid]
+    
     # Calculate the median trading volume
-    median_volume = calculate_median(volume_list)
+    median_volume = calculate_median(volume_list) if volume_list else 0
+    
     # Print results
     print(f"Highest Opening Price: {max_open}")
     print(f"Lowest Opening Price: {min_open}")
-    print(f"Largest Change in One Day (High-Low): {max_change}")
-    print(f"Largest Change Between Two Days (Closing Price): {max_close_change}")
+    print(f"Largest Change in One Day (High - Low): {max_change_in_one_day}")
+    print(f"Largest Change Between Two Days (Closing Price): {max_change_between_days}")
     print(f"Average Daily Trading Volume: {average_volume}")
     print(f"Median Daily Trading Volume: {median_volume}")
-Highest Opening Price: 34.99
-Lowest Opening Price: 34.99
-Largest Change in One Day (High-Low): 0.9499999999999957
-Largest Change Between Two Days (Closing Price): -inf
-Average Daily Trading Volume: 175.2941176470588
-Median Daily Trading Volume: 44700.0
-response = requests.get(base_url, params=params)
-
-if response.status_code == 200:
-    print("Request was successful.")
+    
 else:
-    print("Failed to fetch data:", response.status_code, response.text)
+    print(f"Failed to fetch data: {r.status_code}")
+    print(r.text)
+
+#Result:
+#Highest Opening Price: 53.11
+#Lowest Opening Price: 34.0
+#Largest Change in One Day (High - Low): 2.8100000000000023
+#Largest Change Between Two Days (Closing Price): 2.5549999999999997
+#Average Daily Trading Volume: 92684.38492063493
+#Median Daily Trading Volume: 78178.0
